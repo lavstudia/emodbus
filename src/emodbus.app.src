@@ -1,0 +1,12 @@
+{application, emodbus,
+ [
+  {description, "Erlang Modbus Client/Server"},
+  {vsn, "0.1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, {emodbus_app, []}},
+  {env, []}
+ ]}.
