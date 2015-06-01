@@ -1,0 +1,2 @@
+# emodbus
+Erlang Modbus Client
