@@ -29,12 +29,13 @@
 
 -include("emodbus.hrl").
 
--export([init/1,
-         parse/2,
-         serialize/1]).
+-export([parse/2, serialize/1]).
 
--spec init(client | server) -> any().
-init(Side) -> {none, Side}.
+%% Modbus MBAP Header
+-define(MBAP_LENGTH, 7).
+
+-define(RECV_TIMEOUT, 10000).
+
 
 parse(Bin, {none, Side}) when size(Bin) < ?MBAP_LENGTH ->
     {more, fun(BinMore) -> parse(<<Bin/binary, BinMore/binary>>, {none, Side}) end};
