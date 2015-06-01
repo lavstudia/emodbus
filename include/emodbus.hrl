@@ -25,6 +25,9 @@
 %%% @end
 %%%-----------------------------------------------------------------------------
 
+%% Modbus port
+-define(MODBUS_PORT, 502).
+
 %%------------------------------------------------------------------------------
 %% Modbus Function Code
 %%------------------------------------------------------------------------------
@@ -50,34 +53,12 @@
 -type mbap_header() :: #mbap_header{}.
 
 %%------------------------------------------------------------------------------
-%% Modbus Reqeust, Response and Err PDUs
-%%------------------------------------------------------------------------------
--record(modbus_req, {
-        funcode  :: byte(),
-        offset   :: 1..16#ffff,
-        quantity :: 1..16#ffff,
-        value    :: any()
-}).
-
--record(modbus_resp, {
-        funcode :: byte(),
-        count   :: byte(),
-        bytes   :: binary()
-}).
-
--record(modbus_err, {
-        funcode  :: byte(),
-        errcode :: byte()
-}).
-
--type modbus_pdu() :: #modbus_req{} | #modbus_resp{} | #modbus_err{}.
-
-%%------------------------------------------------------------------------------
 %% Modbus Frame
 %%------------------------------------------------------------------------------
 -record(modbus_frame, {
-        hdr :: mbap_header(),
-        pdu :: modbus_pdu()
+        header  :: mbap_header(),
+        funcode :: byte(),
+        payload :: binary()
 }).
 
 -type modbus_frame() :: #modbus_frame{}.

@@ -32,10 +32,6 @@
 -export([parse/2, serialize/1]).
 
 %% Modbus MBAP Header
--define(MBAP_LENGTH, 7).
-
--define(RECV_TIMEOUT, 10000).
-
 
 parse(Bin, {none, Side}) when size(Bin) < ?MBAP_LENGTH ->
     {more, fun(BinMore) -> parse(<<Bin/binary, BinMore/binary>>, {none, Side}) end};
@@ -68,12 +64,8 @@ parse_pdu(Bin, Hdr = #mbap_header{length = Length}, Side) ->
     end,
     {ok,  #modbus_frame{hdr = Hdr, pdu = Pdu}, Rest}.
 
-serialize(#modbus_frame{hdr = #mbap_header{tid = Tid, unit_id = Uid}, pdu = Pdu}) ->
-    Data = serialize(Pdu), Len = 1 + size(Data),
-    <<Tid:16, 0:16, Len:16, Uid:8, Data/binary>>;
-serialize(#modbus_req{funcode = FunCode, offset = Offset, quantity = Quantity}) ->
-    <<FunCode:8, Offset:16, Quantity:16>>;
-serialize(#modbus_resp{funcode = FunCode , count = Count, bytes = Bytes}) ->
-    <<FunCode:8, Count:8, Bytes/binary>>;
-serialize(#modbus_err{funcode = FunCode, errcode = ErrCode}) ->
-    <<FunCode:8, ErrCode:8>>.
+serialize(#modbus_frame{header = #mbap_header{tid = Tid, unit_id = Uid},
+                        funcode = FunCode, payload = Payload}) ->
+    Len = 2 + size(Payload),
+    <<Tid:16, 0:16, Len:16, Uid:8, FunCode:8, Payload/binary>>.
+

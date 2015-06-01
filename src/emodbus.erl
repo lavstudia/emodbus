@@ -29,10 +29,18 @@
 -include("emodbus.hrl").
 
 %% API Exports
--export([start_link/0, start_link/1, stop/1]).
+-export([start/0, start/1,
+         start_link/0, start_link/1,
+         stop/1]).
 
--export([read_coils/3, read_inputs/3, read_hregs/3, read_iregs/3,
-         write_coil/3, write_coils/3, write_hregs/3]).  
+%% modbus API Exports
+-export([read_coils/3,
+         read_inputs/3,
+         read_hregs/3,
+         read_iregs/3,
+         write_coil/3,
+         write_coils/3,
+         write_hregs/3]).
 
 -behaviour(gen_server).
 
@@ -40,25 +48,26 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
-%% Modbus port
--define(MODBUS_PORT, 502).
+-define(MBAP_LENGTH, 7).
+
+-define(CALL_TIMEOUT, 60000).
+
+-define(SOCK_TIMEOUT, 30000).
+
+-define(RECV_TIMEOUT, 10000).
 
 %% Modbus Socket Options
--define(MODBUS_SOCKOPTS, [
-	binary,
-	{packet,    raw},
-	{reuseaddr, true},
-	{nodelay,   true}
+-define(SOCKOPTS, [
+        binary,
+        {packet,    raw},
+        {reuseaddr, true},
+        {nodelay,   true}
 ]).
-
--define(SOCK_TIMEOUT, 20000).
-
--define(CALL_TIMEOUT, 30000).
 
 -type option() :: {host, inet:ip_address() | string()}
                 | {port, inet:port_number()}
-                | {timeout, pos_integer()}
-                | {logger, atom() | {atom(), atom()}}.
+                | {logger, atom() | {atom(), atom()}
+                | {unit_id, byte()}}.
 
 -record(?MODULE, {name                :: atom(),
                   host = "localhost"  :: inet:ip_address() | string(),
@@ -70,10 +79,17 @@
                   parse_state,
                   logger              :: gen_logger:logmod()}).
 
+start() ->
+    start([]).
+
+-spec start(list(option())) -> {ok, pid()} | {error, any()}.
+start(Opts) ->
+    gen_server:start(?MODBUS_PORT, [Opts], []).
+
 start_link() ->
     start_link([]).
 
--spec start_link([option()]) -> {ok, pid()} | {error, any()}.
+-spec start_link(list(option())) -> {ok, pid()} | {error, any()}.
 start_link(Opts) ->
     gen_server:start_link(?MODULE, [Opts], []).
 
@@ -111,7 +127,6 @@ init([Opts]) ->
 
     State = init(Opts1, #?MODULE{host    = "localhost",
                                  port    = ?MODBUS_PORT,
-                                 timeout = ?SOCK_TIMEOUT,
                                  logger  = Logger,
                                  unit_id = 1}),
 
@@ -128,8 +143,6 @@ init([{host, Host} | Opts], State) ->
     init(Opts, State#?MODULE{host = Host});
 init([{port, Port} | Opts], State) ->
     init(Opts, State#?MODULE{port = Port});
-init([{timeout, Timeout} | Opts], State) ->
-    init(Opts, State#?MODULE{timeout = Timeout * 1000});
 init([{logger, Cfg} | Opts], State) ->
     init(Opts, State#?MODULE{logger = gen_logger:new(Cfg)});
 init([{unit_id, Id} | Opts], State) ->
@@ -137,45 +150,16 @@ init([{unit_id, Id} | Opts], State) ->
 init([_Opt | Opts], State) ->
     init(Opts, State).
 
+connect(#?MODULE{host = Host, port = Port, timeout = Timeout}) ->
+    case gen_tcp:connect(Host, Port, ?SOCKOPTS, Timeout) of
+        {ok, Sock}     -> {ok, Sock}; 
+        {error, Error} -> {error, Error}
+    end.
+
 handle_call(Req = {FunCode, Params}, From, State) ->
-    Resp = request(FunCode, Params, State),
-    {reply, Resp, next_id(State))};
+    Resp = catch request(FunCode, Params, State),
+    {reply, Resp, next_id(State)};
 
-handle_call(Req = {read, coils, Offset, Count}, From, State) ->
-    Resp = request(?FUN_CODE_READ_COILS, {Offset, Count}
-                               offset  = Offset, quantity = Count}, State),
-    {reply, Resp, next_id(State))};
-
-handle_call(Req = {read, inputs, Offset, Count}, From, State) ->
-    send(#modbus_req{funcode = ?FUN_CODE_READ_INPUTS,
-                     offset  = Offset, quantity = Count}, State),
-    {noreply, next_id(store_req(Req, From, State))};
-
-handle_call(Req = {read, hregs, Offset, Count}, From, State) ->
-    send(#modbus_req{funcode = ?FUN_CODE_READ_HREGS,
-                     offset  = Offset, quantity = Count}, State),
-    {noreply, next_id(store_req(Req, From, State))};
-
-handle_call(Req = {write, coil, Offset, Coil}, From, State) ->
-    send(#modbus_req{funcode = ?FUN_CODE_WRITE_COIL,
-                     offset  = Offset, value = Coil}, State),
-    {noreply, next_id(store_req(Req, From, State))};
-
-handle_call(Req = {write, hreg, Offset, Val}, From, State) ->
-    send(#modbus_req{funcode = ?FUN_CODE_WRITE_HREG,
-                     offset = Offset, value = Val}, State),
-    {noreply, next_id(store_req(Req, From, State))};
-
-handle_call(Req = {write, coils, Offset, Coils}, From, State) ->
-    send(#modbus_req{funcode = ?FUN_CODE_WRITE_COILS,
-                     offset = Offset, value = Coils}, State),
-    {noreply, next_id(store_req(Req, From, State))};
-
-handle_call(Req = {write, hregs, Offset, Val}, From, State) ->
-    send(#modbus_req{funcode = ?FUN_CODE_WRITE_HREGS,
-                     offset = Offset, value = Val}, State),
-    {noreply, next_id(store_req(Req, From, State))};
-    
 handle_call(stop, _From, State=#state{socket = Sock}) ->
 	gen_tcp:close(Sock),
 	{stop, normal, stopped, State};
@@ -186,15 +170,6 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({tcp, Sock, Data}, State=#state{socket = Sock}) ->
-    received(Data, run_sock(State));
-
-handle_info({tcp_error, Sock, Reason}, State=#state{socket = Sock}) ->
-    {stop, {shutdown, {tcp_error, Reason}}, State};
-
-handle_info({tcp_closed, Sock}, State=#state{socket =Sock}) ->
-	{stop, {shutdown, tcp_closed}, State};
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -204,15 +179,53 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-connect(#state{host = Host, port = Port, timeout = Timeout}) ->
-    case gen_tcp:connect(Host, Port, ?MODBUS_SOCKOPTS, Timeout) of
-        {ok, Sock}     -> {ok, Sock}; 
-        {error, Error} -> {error, Error}
+request(?FUN_CODE_READ_COILS, {Offset, Count}, State) ->
+    Payload = <<Offset:16, Count:16>>,
+    send(?FUN_CODE_READ_COILS, Payload, State),
+    case recv(?FUN_CODE_READ_COILS, State)) of
+        {ok, Frame} ->
+            response(?FUN_CODE_READ_COILS, Frame);
+        {error, Erro} ->
+            {error, Error}
     end.
 
-send(PDU, #state{tid = Tid, unit_id = Uid, socket = Sock}) ->
-    Frame = #modbus_frame{hdr = #mbap_header{tid = Tid, unit_id = Uid}, pdu = PDU},
+request(FunCode, Params, State) ->
+    {error, unsupported}.
+
+send(FunCode, Payload, #?MODULE{tid = Tid, unit_id = UnitId, socket = Sock}) ->
+    Hdr= #mbap_header{tid = Tid, unit_id = UnitId},
+    Frame = #modbus_frame{header = Hdr, funcode = FunCode, payload = Payload},
     gen_tcp:send(Sock, emodbus_frame:serialize(Frame)).
+    
+recv(FunCode, State = #?MODULE{tid = Tid, socket = Sock}) ->
+    case recv(header, FunCode, State) of
+        {ok, Header} ->
+            recv(payload, Header, State);
+        {error,Error} ->
+            {error,Error}
+    end.
+
+recv(header, _FunCode, State = #?MODULE{tid = Tid, socket = Sock}) ->
+    case gen_tcp:recv(Sock, ?MBAP_LENGTH, ?RECV_TIMEOUT) of
+        {ok, <<Tid:16, 0:16, Len:16, Uid:8>>} ->
+            recv(payload, #mbap_header{tid = Tid, length = Len, unit_id = Uid}, State);
+        {ok, Header} ->
+            error_logger:error_msg("Response cannot match request: request tid=~p, response header =~p", [Tid, Header]),
+            {error, badresp};
+        {error, Reason} ->
+            {error, Reason}
+    end;
+
+recv(payload, Header = #mbap_header{length = Len}, #?MODULE{socket = Sock}) ->
+    case gen_tcp:recv(Sock, Len - 1, ?RECV_TIMEOUT) of
+        {ok, <<FunCodeOrErr:8, Payload/binary>>} ->
+            {ok, #modbus_frame{header = Header, funcode = FunCodeOrErr, payload = Payload}};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+
+send(PDU, #state{tid = Tid, unit_id = Uid, socket = Sock}) ->
 
 received(<<>>, State) ->
     {noreply, State, hibernate};
