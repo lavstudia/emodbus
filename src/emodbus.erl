@@ -38,6 +38,7 @@
          read_hregs/3,
          read_iregs/3,
          write_coil/3,
+         write_hreg/3,
          write_coils/3,
          write_hregs/3]).
 
@@ -70,7 +71,6 @@
         {nodelay,   true}
 ]).
 
-
 connect() ->
     connect("localhost", ?MODBUS_PORT).
 
@@ -89,14 +89,17 @@ read_coils(Device, Offset, Count) ->
 read_inputs(Device, Offset, Count) ->
     call(Device, {?FUN_CODE_READ_INPUTS, {Offset, Count}}).
 
-read_iregs(Device, Offset, Count) ->
-    call(Device, {?FUN_CODE_READ_IREGS, {Offset, Count}}).
-
 read_hregs(Device, Offset, Count) ->
     call(Device, {?FUN_CODE_READ_HREGS, {Offset, Count}}).
 
+read_iregs(Device, Offset, Count) ->
+    call(Device, {?FUN_CODE_READ_IREGS, {Offset, Count}}).
+
 write_coil(Device, Offset, Coil) ->
     call(Device, {?FUN_CODE_WRITE_COIL, {Offset, Coil}}).
+
+write_hreg(Device, Offset, Value) ->
+    call(Device, {?FUN_CODE_WRITE_HREG, {Offset, Value}}).
 
 write_coils(Device, Offset, Coils) ->
     call(Device, {?FUN_CODE_WRITE_COILS, {Offset, Coils}}).
@@ -116,11 +119,12 @@ init([Host, Port, UnitId]) ->
     end.
 
 handle_call({FunCode, Params}, _From, State) ->
-    Reply = case catch request(FunCode, Params, State) of
-        {'EXIT', Error} -> {error, Error};
-        Response-> Response
-    end,
-    {reply, Reply, next_id(State)};
+    case catch request(FunCode, Params, State) of
+        {'EXIT', Error} ->
+            {reply, {error, Error}, next_id(State)};
+        Response ->
+            {reply, Response, next_id(State)}
+    end;
 
 handle_call(stop, _From, State=#state{socket = Sock}) ->
 	gen_tcp:close(Sock),
@@ -144,8 +148,26 @@ code_change(_OldVsn, State, _Extra) ->
 request(?FUN_CODE_READ_COILS, {Offset, Count}, State) ->
     send_and_recv(?FUN_CODE_READ_COILS, <<Offset:16, Count:16>>, State);
 
-request(?FUN_CODE_WRITE_HREGS, {Offset, Val}, State) ->
-    send_and_recv(?FUN_CODE_WRITE_HREGS, <<Offset:16, Val:16>>, State);
+request(?FUN_CODE_READ_INPUTS, {Offset, Count}, State) ->
+    send_and_recv(?FUN_CODE_READ_INPUTS, <<Offset:16, Count:16>>, State);
+
+request(?FUN_CODE_READ_HREGS, {Offset, Count}, State) ->
+    send_and_recv(?FUN_CODE_READ_HREGS, <<Offset:16, Count:16>>, State);
+
+request(?FUN_CODE_READ_IREGS, {Offset, Count}, State) ->
+    send_and_recv(?FUN_CODE_READ_IREGS, <<Offset:16, Count:16>>, State);
+
+request(?FUN_CODE_WRITE_COIL, {Offset, Coil}, State) ->
+    send_and_recv(?FUN_CODE_WRITE_COIL, <<Offset:16, Coil:16>>, State);
+
+request(?FUN_CODE_WRITE_HREG, {Offset, Value}, State) ->
+    send_and_recv(?FUN_CODE_WRITE_HREG, <<Offset:16, Value:16>>, State);
+
+request(?FUN_CODE_WRITE_COILS, {Offset, Coils}, State) ->
+    {error, unsupported};
+
+request(?FUN_CODE_WRITE_HREGS, {Offset, Values}, State) ->
+    {error, unsupported};
 
 request(_FunCode, _Params, _State) ->
     {error, unsupported}.
@@ -165,8 +187,20 @@ send_and_recv(FunCode, Payload, State) ->
 
 response(?FUN_CODE_READ_COILS, Frame) ->
     ok;
+
 response(?FUN_CODE_READ_COILS, Frame) ->
     ok.
+
+response(?FUN_CODE_READ_INPUTS, Frame) ->
+    
+response(?FUN_CODE_READ_HREGS, Frame) ->
+
+response(?FUN_CODE_READ_IREGS, Frame) ->
+
+response(?FUN_CODE_WRITE_COIL, Frame) ->
+
+response(?FUN_CODE_WRITE_HREG, Frame) ->
+
 
 send(FunCode, Payload, #state{tid = Tid, unit_id = UnitId, socket = Sock}) ->
     Hdr= #mbap_header{tid = Tid, unit_id = UnitId},
@@ -210,7 +244,4 @@ next_id(State = #state{tid = Tid}) when Tid >= 16#EFFF ->
 
 next_id(State = #state{tid = Tid}) ->
     State#state{tid = Tid+1}.
-
-
-
 

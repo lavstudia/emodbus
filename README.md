@@ -1,4 +1,4 @@
 
 ## Overview
 
-Erlang Modebus Client Library
+Erlang Modebus Client
