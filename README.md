@@ -1,7 +1,7 @@
 
 ## Overview
 
-Erlang Modebus Client
+Erlang Modebus Client/Server
 
 ## Usage
 
