@@ -54,8 +54,6 @@
         unit_id = 1 :: byte()
  }).
 
--define(MBAP_LENGTH, 7).
-
 -define(CALL_TIMEOUT, 60000).
 
 -define(SOCK_TIMEOUT, 30000).
@@ -84,7 +82,7 @@ disconnect(Device) ->
     call(Device, stop).
 
 read_coils(Device, Offset, Count) ->
-    call(Device, #modbus_req{funcode = ?FUN_CODE_WRITE_COILS, offset = Offset, count = Count}).
+    call(Device, #modbus_req{funcode = ?FUN_CODE_READ_COILS, offset = Offset, count = Count}).
 
 read_inputs(Device, Offset, Count) ->
     call(Device, #modbus_req{funcode = ?FUN_CODE_READ_INPUTS, offset = Offset, count = Count}).
@@ -189,7 +187,10 @@ response(#modbus_req{funcode = FunCode}, #modbus_frame{funcode = ErroCode, paylo
 send(#modbus_req{funcode = FunCode, offset = Offset, count = Count}, #state{tid = Tid, unit_id = UnitId, socket = Sock}) ->
     Hdr= #mbap_header{tid = Tid, unit_id = UnitId},
     Frame = #modbus_frame{header = Hdr, funcode = FunCode, payload = <<Offset:16, Count:16>>},
-    gen_tcp:send(Sock, serialize(Frame)).
+    error_logger:info_msg("SENT Frame: ~p", [Frame]),
+    Data = serialize(Frame),
+    error_logger:info_msg("SENT: ~p", [Data]),
+    gen_tcp:send(Sock, Data).
 
 serialize(#modbus_frame{header = #mbap_header{tid = Tid, unit_id = Uid},
                         funcode = FunCode, payload = Payload}) ->
@@ -204,10 +205,10 @@ recv(State) ->
             {error,Error}
     end.
 
-recv(header, State = #state{tid = Tid, socket = Sock}) ->
+recv(header, #state{tid = Tid, socket = Sock}) ->
     case gen_tcp:recv(Sock, ?MBAP_LENGTH, ?RECV_TIMEOUT) of
-        {ok, <<Tid:16, 0:16, Len:16, Uid:8>>} ->
-            recv(payload, #mbap_header{tid = Tid, length = Len, unit_id = Uid}, State);
+        {ok, <<Tid:16, 0:16, Len:16>>} ->
+            {ok, #mbap_header{tid = Tid, length = Len}};
         {ok, Header} ->
             error_logger:error_msg("Response cannot match request: request tid=~p, response header =~p", [Tid, Header]),
             {error, badresp};
@@ -216,9 +217,10 @@ recv(header, State = #state{tid = Tid, socket = Sock}) ->
     end.
 
 recv(payload, Header = #mbap_header{length = Len}, #state{socket = Sock}) ->
-    case gen_tcp:recv(Sock, Len - 1, ?RECV_TIMEOUT) of
-        {ok, <<FunCodeOrErr:8, Payload/binary>>} ->
-            {ok, #modbus_frame{header = Header, funcode = FunCodeOrErr, payload = Payload}};
+    case gen_tcp:recv(Sock, Len, ?RECV_TIMEOUT) of
+        {ok, <<UnitId:8, FunCodeOrErr:8, Payload/binary>>} ->
+            {ok, #modbus_frame{header = Header#mbap_header{unit_id = UnitId},
+                               funcode = FunCodeOrErr, payload = Payload}};
         {error, Reason} ->
             {error, Reason}
     end.

@@ -4,5 +4,6 @@
   {vsn, "0.3"},
   {registered, []},
   {applications, [kernel, stdlib]},
+  {mod, {emodbus_app, []}},
   {env, []}
  ]}.
