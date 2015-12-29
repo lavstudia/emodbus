@@ -29,7 +29,7 @@
 -include("emodbus.hrl").
 
 %% API Exports
--export([connect/0, connect/2, connect/3,
+-export([connect/1, connect/3, connect/4,
          disconnect/1]).
 
 %% modbus API Exports
@@ -69,14 +69,14 @@
         {nodelay,   true}
 ]).
 
-connect() ->
-    connect("localhost", ?MODBUS_PORT).
+connect(Device) ->
+    connect(Device, "localhost", ?MODBUS_PORT).
 
-connect(Host, Port) ->
-    connect(Host, Port, 1).
+connect(Device, Host, Port) ->
+    connect(Device, Host, Port, 1).
 
-connect(Host, Port, UnitId) ->
-    gen_server:start_link(?MODULE, [Host, Port, UnitId], []).
+connect(Device, Host, Port, UnitId) ->
+    gen_server:start_link({global, Device}, ?MODULE, [Host, Port, UnitId], []).
 
 disconnect(Device) ->
     call(Device, stop).
